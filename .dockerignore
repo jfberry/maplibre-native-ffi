@@ -1,0 +1,37 @@
+# Exclude artifacts and unrelated trees from the Docker build context to keep
+# image builds fast. Keep third_party/maplibre-native — required by the native
+# build — but drop its own build artifacts.
+
+# Host build artifacts (the container rebuilds for its target variant).
+build/
+**/build/
+.pixi/
+.zig-cache/
+**/zig-cache/
+**/zig-out/
+**/target/
+
+# Node modules and pnpm store.
+node_modules/
+**/node_modules/
+docs/.docusaurus/
+
+# Editor and OS clutter.
+.idea/
+.vscode/
+.zed/
+**/.DS_Store
+
+# Git metadata (we don't need history inside the build).
+.git/
+
+# Bindings and examples we don't exercise in the go-readback container.
+bindings/java-ffm/
+bindings/java-jni/
+bindings/rust/target/
+bindings/zig/
+examples/lwjgl-map/
+examples/rust-map/
+examples/swift-map/
+examples/zig-map/
+examples/zig-readback/

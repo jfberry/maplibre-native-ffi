@@ -1,0 +1,18 @@
+[tasks.build]
+depends = ["//:ensure-native-library"]
+run = '''
+export CGO_CFLAGS="-I$MLN_FFI_INCLUDE_DIR -I$MLN_FFI_VULKAN_INCLUDE_DIR ${CGO_CFLAGS:-}"
+export CGO_LDFLAGS="-L$MLN_FFI_BUILD_DIR -Wl,-rpath,$MLN_FFI_BUILD_DIR -lmaplibre-native-c ${CGO_LDFLAGS:-}"
+mkdir -p out
+go build -o out/go-readback .
+'''
+
+[tasks.run]
+depends = ["//:ensure-native-library"]
+run = '''
+export CGO_CFLAGS="-I$MLN_FFI_INCLUDE_DIR -I$MLN_FFI_VULKAN_INCLUDE_DIR ${CGO_CFLAGS:-}"
+export CGO_LDFLAGS="-L$MLN_FFI_BUILD_DIR -Wl,-rpath,$MLN_FFI_BUILD_DIR -lmaplibre-native-c ${CGO_LDFLAGS:-}"
+mkdir -p out
+go build -o out/go-readback .
+out/go-readback out/go-readback.ppm
+'''
