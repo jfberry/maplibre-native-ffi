@@ -278,7 +278,12 @@ class OpenGLTextureRenderableResource final
     }
   }
 
-  void swap() override { context.finish(); }
+  // Default mbgl::HeadlessRenderableResource (used by the Node binding's
+  // HeadlessFrontend) has swap() as a no-op; the subsequent glReadPixels
+  // provides an implicit fence. The earlier context.finish() here was a
+  // defensive sync that added an extra CPU/GPU round-trip per render.
+  // Skip it — readback fences naturally.
+  void swap() override {}
 
   auto readStillImage() -> mbgl::PremultipliedImage {
     bind();
@@ -369,14 +374,28 @@ class OpenGLTextureBackend final : public mbgl::gl::RendererBackend,
   OpenGLTextureBackend(
     const mln_opengl_owned_texture_descriptor& descriptor, mbgl::Size size
   )
-      : mbgl::gl::RendererBackend(mbgl::gfx::ContextMode::Shared),
+      // Unique matches mbgl's HeadlessBackend default (the path the Node
+      // binding uses). Shared mode disables mbgl's gl::Context state
+      // cache, forcing redundant glBindBuffer/glUseProgram/etc. calls
+      // per draw — the dominant CPU cost in software GL. Unique is safe
+      // here because each session owns its own GL context (per worker,
+      // OS-thread-pinned); nothing external mutates GL state between
+      // renders.
+      : mbgl::gl::RendererBackend(mbgl::gfx::ContextMode::Unique),
         mbgl::gfx::HeadlessBackend(size),
         context_(descriptor.context) {}
 
   OpenGLTextureBackend(
     const mln_opengl_borrowed_texture_descriptor& descriptor, mbgl::Size size
   )
-      : mbgl::gl::RendererBackend(mbgl::gfx::ContextMode::Shared),
+      // Unique matches mbgl's HeadlessBackend default (the path the Node
+      // binding uses). Shared mode disables mbgl's gl::Context state
+      // cache, forcing redundant glBindBuffer/glUseProgram/etc. calls
+      // per draw — the dominant CPU cost in software GL. Unique is safe
+      // here because each session owns its own GL context (per worker,
+      // OS-thread-pinned); nothing external mutates GL state between
+      // renders.
+      : mbgl::gl::RendererBackend(mbgl::gfx::ContextMode::Unique),
         mbgl::gfx::HeadlessBackend(size),
         context_(descriptor.context),
         borrowed_texture_(descriptor.texture) {}
