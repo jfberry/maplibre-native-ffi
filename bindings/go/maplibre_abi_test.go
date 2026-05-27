@@ -15,8 +15,23 @@ func TestSupportedRenderBackendsUsesNativeABIConstants(t *testing.T) {
 	if mask.Has(RenderBackendMetal) && uint32(RenderBackendMetal) == 0 {
 		t.Fatal("RenderBackendMetal has zero ABI value")
 	}
+	if mask.Has(RenderBackendOpenGL) && uint32(RenderBackendOpenGL) == 0 {
+		t.Fatal("RenderBackendOpenGL has zero ABI value")
+	}
 	if mask.Has(RenderBackendVulkan) && uint32(RenderBackendVulkan) == 0 {
 		t.Fatal("RenderBackendVulkan has zero ABI value")
+	}
+}
+func TestSupportedOpenGLContextProvidersUsesNativeABIConstants(t *testing.T) {
+	mask := SupportedOpenGLContextProviders()
+	if mask.Has(OpenGLContextProviderWGL) && uint32(OpenGLContextProviderWGL) == 0 {
+		t.Fatal("OpenGLContextProviderWGL has zero ABI value")
+	}
+	if mask.Has(OpenGLContextProviderEGL) && uint32(OpenGLContextProviderEGL) == 0 {
+		t.Fatal("OpenGLContextProviderEGL has zero ABI value")
+	}
+	if SupportedRenderBackends().Has(RenderBackendOpenGL) && mask == 0 {
+		t.Fatal("OpenGL backend present but no context providers reported")
 	}
 }
 func TestNativePointerIsOpaqueValue(t *testing.T) {
