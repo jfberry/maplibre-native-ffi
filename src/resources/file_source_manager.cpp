@@ -90,6 +90,11 @@ auto FileSourceManager::get() noexcept -> FileSourceManager* {
           const ResourceOptions& resource_options,
           const ClientOptions& client_options
         ) -> std::unique_ptr<FileSource> {
+          if (mln::core::bypass_resource_loader_enabled()) {
+            return mln::core::make_bypass_resource_loader(
+              resource_options, client_options
+            );
+          }
           return mln::core::make_main_resource_loader(
             resource_options, client_options
           );

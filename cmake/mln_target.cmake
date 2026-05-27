@@ -22,6 +22,7 @@ function(mln_add_c_api_library target)
       ${PROJECT_SOURCE_DIR}/src/render/render_session_common.cpp
       ${PROJECT_SOURCE_DIR}/src/render/surface_session.cpp
       ${PROJECT_SOURCE_DIR}/src/render/texture_session.cpp
+      ${PROJECT_SOURCE_DIR}/src/resources/bypass_resource_loader.cpp
       ${PROJECT_SOURCE_DIR}/src/resources/custom_resource_provider.cpp
       ${PROJECT_SOURCE_DIR}/src/resources/file_source_manager.cpp
       ${PROJECT_SOURCE_DIR}/src/resources/network_status.cpp

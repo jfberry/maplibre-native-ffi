@@ -23,4 +23,14 @@ auto make_main_resource_loader(
   const mbgl::ClientOptions& client_options
 ) noexcept -> std::unique_ptr<mbgl::FileSource>;
 
+auto make_bypass_resource_loader(
+  const mbgl::ResourceOptions& resource_options,
+  const mbgl::ClientOptions& client_options
+) noexcept -> std::unique_ptr<mbgl::FileSource>;
+
+// Reads MLN_FFI_RESOURCE_LOADER once at first call. Default false (use the
+// standard mbgl::MainResourceLoader); set MLN_FFI_RESOURCE_LOADER=bypass to
+// opt into the synchronous bypass loader.
+auto bypass_resource_loader_enabled() noexcept -> bool;
+
 }  // namespace mln::core
