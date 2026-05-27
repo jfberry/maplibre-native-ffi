@@ -95,6 +95,12 @@ func TestRenderSessionNilHandleAndInvalidSurfaceDescriptor(t *testing.T) {
 	if !errors.Is(err, ErrInvalidArgument) && !errors.Is(err, ErrUnsupported) {
 		t.Fatalf("AttachOpenGLBorrowedTexture(invalid descriptor) error = %v, want ErrInvalidArgument or ErrUnsupported", err)
 	}
+	_, err = m.AttachOpenGLOffscreen(OpenGLOffscreenDescriptor{
+		Extent: RenderTargetExtent{Width: 64, Height: 64, ScaleFactor: 1},
+	})
+	if !errors.Is(err, ErrInvalidArgument) && !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("AttachOpenGLOffscreen(invalid descriptor) error = %v, want ErrInvalidArgument or ErrUnsupported", err)
+	}
 }
 
 func TestNewOpenGLContextConstructorsSetPlatform(t *testing.T) {

@@ -38,6 +38,11 @@ auto mln_opengl_borrowed_texture_descriptor_default(void) noexcept
   return mln::core::opengl_borrowed_texture_descriptor_default();
 }
 
+auto mln_opengl_offscreen_descriptor_default(void) noexcept
+  -> mln_opengl_offscreen_descriptor {
+  return mln::core::opengl_offscreen_descriptor_default();
+}
+
 auto mln_texture_image_info_default(void) noexcept -> mln_texture_image_info {
   return mln::core::texture_image_info_default();
 }
@@ -107,6 +112,15 @@ auto mln_opengl_borrowed_texture_attach(
     return mln::core::opengl_borrowed_texture_attach(
       map, descriptor, out_session
     );
+  });
+}
+
+auto mln_opengl_offscreen_attach(
+  mln_map* map, const mln_opengl_offscreen_descriptor* descriptor,
+  mln_render_session** out_session
+) noexcept -> mln_status {
+  return mln::c_api::status_boundary([&]() -> mln_status {
+    return mln::core::opengl_offscreen_attach(map, descriptor, out_session);
   });
 }
 

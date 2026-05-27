@@ -231,6 +231,20 @@ type OpenGLSurfaceDescriptor struct {
 	Surface NativePointer
 }
 
+// OpenGLOffscreenDescriptor describes a session-owned OpenGL offscreen render
+// target. The session creates a framebuffer with a renderbuffer color
+// attachment plus a depth/stencil renderbuffer — matching mbgl's
+// HeadlessBackend layout. This path is preferred when the caller only needs
+// CPU pixel readback (via RenderSessionHandle.ReadPremultipliedRGBA8 /
+// ReadPremultipliedRGBA8Into) because it avoids the implicit GPU sync of the
+// texture-backed target, putting per-frame latency at parity with the Node
+// binding's HeadlessBackend on Mesa software stacks. No texture-frame handle
+// is exposed; AcquireOpenGLTextureFrame on the resulting session would fail.
+type OpenGLOffscreenDescriptor struct {
+	Extent  RenderTargetExtent
+	Context OpenGLContextDescriptor
+}
+
 // RenderSessionHandle owns a map render session.
 type RenderSessionHandle struct {
 	state  *handle.State[nativeRenderSession]
@@ -443,6 +457,13 @@ func (descriptor OpenGLSurfaceDescriptor) toC() C.mln_opengl_surface_descriptor 
 	return raw
 }
 
+func (descriptor OpenGLOffscreenDescriptor) toC() C.mln_opengl_offscreen_descriptor {
+	raw := C.mln_opengl_offscreen_descriptor_default()
+	raw.extent = descriptor.Extent.toC()
+	raw.context = descriptor.Context.toC()
+	return raw
+}
+
 func newRenderSessionHandle(parent *MapHandle, session *nativeRenderSession) (*RenderSessionHandle, error) {
 	state, err := handle.New(session, "RenderSessionHandle", parent)
 	if err != nil {
@@ -600,6 +621,30 @@ func (m *MapHandle) AttachOpenGLOwnedTexture(descriptor OpenGLOwnedTextureDescri
 	rawDescriptor := descriptor.toC()
 	if err := checkNative(func() int32 {
 		return int32(C.mln_opengl_owned_texture_attach((*C.mln_map)(unsafe.Pointer(ptr)), &rawDescriptor, &session))
+	}); err != nil {
+		return nil, err
+	}
+	return newRenderSessionHandle(m, (*nativeRenderSession)(unsafe.Pointer(session)))
+}
+
+// AttachOpenGLOffscreen attaches a session-owned OpenGL offscreen render
+// target backed by an FBO with a renderbuffer color attachment plus a
+// depth/stencil renderbuffer (mbgl HeadlessBackend layout). This is the
+// preferred path when the caller only needs CPU pixel readback (via
+// RenderSessionHandle.ReadPremultipliedRGBA8) — it avoids the implicit GPU
+// sync of the texture-backed target and is at parity with the Node binding's
+// HeadlessBackend latency on Mesa software stacks.
+func (m *MapHandle) AttachOpenGLOffscreen(descriptor OpenGLOffscreenDescriptor) (*RenderSessionHandle, error) {
+	ptr, err := m.ptr()
+	if err != nil {
+		return nil, err
+	}
+	defer m.state.KeepAlive()
+
+	var session *C.mln_render_session
+	rawDescriptor := descriptor.toC()
+	if err := checkNative(func() int32 {
+		return int32(C.mln_opengl_offscreen_attach((*C.mln_map)(unsafe.Pointer(ptr)), &rawDescriptor, &session))
 	}); err != nil {
 		return nil, err
 	}

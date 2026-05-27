@@ -205,6 +205,8 @@ auto opengl_owned_texture_descriptor_default() noexcept
   -> mln_opengl_owned_texture_descriptor;
 auto opengl_borrowed_texture_descriptor_default() noexcept
   -> mln_opengl_borrowed_texture_descriptor;
+auto opengl_offscreen_descriptor_default() noexcept
+  -> mln_opengl_offscreen_descriptor;
 auto validate_opengl_context(
   const mln_opengl_context_descriptor& context, bool require_supported_provider
 ) -> mln_status;

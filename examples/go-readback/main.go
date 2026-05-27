@@ -121,16 +121,22 @@ const (
 
 func main() {
 	output := "go-readback.ppm"
-	if len(os.Args) > 1 {
-		output = os.Args[1]
+	target := "owned-texture" // owned-texture | offscreen
+	for _, arg := range os.Args[1:] {
+		switch arg {
+		case "owned-texture", "offscreen":
+			target = arg
+		default:
+			output = arg
+		}
 	}
 
-	if err := run(output); err != nil {
+	if err := run(output, target); err != nil {
 		log.Fatalf("go-readback: %v", err)
 	}
 }
 
-func run(outputPath string) error {
+func run(outputPath, target string) error {
 	backends := maplibre.SupportedRenderBackends()
 	log.Printf("native render backends mask: 0x%x (metal=%t opengl=%t vulkan=%t)",
 		uint32(backends),
@@ -179,12 +185,29 @@ func run(outputPath string) error {
 		ShareContext:   maplibre.NativePointer(uintptr(unsafe.Pointer(egl.share_context))),
 		GetProcAddress: maplibre.NativePointer(uintptr(C.mln_go_egl_get_proc_address())),
 	})
-	session, err := m.AttachOpenGLOwnedTexture(maplibre.OpenGLOwnedTextureDescriptor{
-		Extent:  maplibre.RenderTargetExtent{Width: width, Height: height, ScaleFactor: scaleFactor},
-		Context: context,
-	})
-	if err != nil {
-		return fmt.Errorf("AttachOpenGLOwnedTexture: %w", err)
+	extent := maplibre.RenderTargetExtent{Width: width, Height: height, ScaleFactor: scaleFactor}
+	var session *maplibre.RenderSessionHandle
+	switch target {
+	case "offscreen":
+		log.Printf("attach: OpenGL offscreen FBO (renderbuffer color, HeadlessBackend layout)")
+		session, err = m.AttachOpenGLOffscreen(maplibre.OpenGLOffscreenDescriptor{
+			Extent:  extent,
+			Context: context,
+		})
+		if err != nil {
+			return fmt.Errorf("AttachOpenGLOffscreen: %w", err)
+		}
+	case "owned-texture":
+		log.Printf("attach: OpenGL owned texture")
+		session, err = m.AttachOpenGLOwnedTexture(maplibre.OpenGLOwnedTextureDescriptor{
+			Extent:  extent,
+			Context: context,
+		})
+		if err != nil {
+			return fmt.Errorf("AttachOpenGLOwnedTexture: %w", err)
+		}
+	default:
+		return fmt.Errorf("unknown target %q (want owned-texture | offscreen)", target)
 	}
 	defer session.Close()
 

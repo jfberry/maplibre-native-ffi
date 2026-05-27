@@ -159,6 +159,27 @@ typedef struct mln_opengl_borrowed_texture_descriptor {
   uint32_t target;
 } mln_opengl_borrowed_texture_descriptor;
 
+/**
+ * OpenGL offscreen-FBO session attachment options. The session creates a
+ * framebuffer with a renderbuffer color attachment plus a depth/stencil
+ * renderbuffer — matching mbgl's HeadlessBackend layout, which has shorter
+ * per-frame latency on Mesa software paths than the texture-backed target
+ * because no implicit GPU sync sits between render and readback. Pixels are
+ * extracted exclusively through mln_texture_read_premultiplied_rgba8; no
+ * texture-frame handle is exposed because the color attachment is a
+ * renderbuffer, not a texture object.
+ */
+typedef struct mln_opengl_offscreen_descriptor {
+  uint32_t size;
+  /** Logical render target extent. */
+  mln_render_target_extent extent;
+  /**
+   * Borrowed OpenGL context provider data. The session creates and owns a
+   * context in the same share group as descriptor->context.share_context.
+   */
+  mln_opengl_context_descriptor context;
+} mln_opengl_offscreen_descriptor;
+
 /** OpenGL frame acquired from a session-owned texture target. */
 typedef struct mln_opengl_owned_texture_frame {
   uint32_t size;
@@ -232,6 +253,12 @@ mln_opengl_owned_texture_descriptor_default(void) MLN_NOEXCEPT;
  */
 MLN_API mln_opengl_borrowed_texture_descriptor
 mln_opengl_borrowed_texture_descriptor_default(void) MLN_NOEXCEPT;
+
+/**
+ * Returns OpenGL offscreen descriptor defaults for this C API version.
+ */
+MLN_API mln_opengl_offscreen_descriptor
+mln_opengl_offscreen_descriptor_default(void) MLN_NOEXCEPT;
 
 /**
  * Returns texture image info defaults for this C API version.
@@ -399,6 +426,36 @@ MLN_API mln_status mln_opengl_owned_texture_attach(
  */
 MLN_API mln_status mln_opengl_borrowed_texture_attach(
   mln_map* map, const mln_opengl_borrowed_texture_descriptor* descriptor,
+  mln_render_session** out_session
+) MLN_NOEXCEPT;
+
+/**
+ * Attaches an OpenGL offscreen render target to a map.
+ *
+ * The session creates a session-owned framebuffer with a renderbuffer color
+ * attachment plus a depth/stencil renderbuffer (the same layout mbgl's
+ * HeadlessBackend uses). Pixels are extracted via
+ * mln_texture_read_premultiplied_rgba8; the session does not expose a
+ * texture-frame handle. Use this attach when the caller only needs the CPU
+ * pixel readback path (e.g. tile servers, raster export) and not direct
+ * GPU-side texture access.
+ *
+ * The map may have at most one live render session. The session and every
+ * session call are owner-thread affine to the map owner thread.
+ *
+ * Returns:
+ * - MLN_STATUS_OK on success.
+ * - MLN_STATUS_INVALID_ARGUMENT when map is null or not live, descriptor is
+ *   null or invalid, out_session is null, or *out_session is not null.
+ * - MLN_STATUS_INVALID_STATE when the map already has a render session.
+ * - MLN_STATUS_WRONG_THREAD when called from a thread other than the map owner
+ *   thread.
+ * - MLN_STATUS_UNSUPPORTED when OpenGL offscreen sessions are not supported by
+ *   this build.
+ * - MLN_STATUS_NATIVE_ERROR when an internal exception is converted to status.
+ */
+MLN_API mln_status mln_opengl_offscreen_attach(
+  mln_map* map, const mln_opengl_offscreen_descriptor* descriptor,
   mln_render_session** out_session
 ) MLN_NOEXCEPT;
 

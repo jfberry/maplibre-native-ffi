@@ -45,6 +45,10 @@ auto opengl_borrowed_texture_attach(
   mln_map* map, const mln_opengl_borrowed_texture_descriptor* descriptor,
   mln_render_session** out_session
 ) -> mln_status;
+auto opengl_offscreen_attach(
+  mln_map* map, const mln_opengl_offscreen_descriptor* descriptor,
+  mln_render_session** out_session
+) -> mln_status;
 auto texture_read_premultiplied_rgba8(
   mln_render_session* texture, uint8_t* out_data, size_t out_data_capacity,
   mln_texture_image_info* out_info

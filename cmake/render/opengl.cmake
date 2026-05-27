@@ -40,7 +40,8 @@ function(mln_configure_opengl_backend target)
 
   set(MLN_FFI_OPENGL_SOURCES
       ${PROJECT_SOURCE_DIR}/src/render/opengl/opengl_texture_session.cpp
-      ${PROJECT_SOURCE_DIR}/src/render/opengl/opengl_surface_session.cpp)
+      ${PROJECT_SOURCE_DIR}/src/render/opengl/opengl_surface_session.cpp
+      ${PROJECT_SOURCE_DIR}/src/render/opengl/opengl_offscreen_session.cpp)
 
   mln_target_vendor_sources(${target} ${MLN_FFI_VENDOR_OPENGL_SOURCES})
   mln_target_project_sources(${target} ${MLN_FFI_OPENGL_SOURCES})
