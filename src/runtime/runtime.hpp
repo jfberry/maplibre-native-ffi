@@ -89,6 +89,9 @@ auto run_runtime_once(mln_runtime* runtime) -> mln_status;
 auto run_runtime_blocking(
   mln_runtime* runtime, uint64_t timeout_ms, bool* out_had_event
 ) -> mln_status;
+auto wait_for_runtime_event(
+  mln_runtime* runtime, uint64_t timeout_ms, bool* out_had_event
+) -> mln_status;
 auto poll_runtime_event(
   mln_runtime* runtime, mln_runtime_event* out_event, bool* out_has_event
 ) -> mln_status;

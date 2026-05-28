@@ -325,6 +325,16 @@ auto mln_runtime_run_blocking(
   });
 }
 
+auto mln_runtime_wait_for_event(
+  mln_runtime* runtime, uint64_t timeout_ms, bool* out_had_event
+) noexcept -> mln_status {
+  return mln::c_api::status_boundary([&]() -> mln_status {
+    return mln::core::wait_for_runtime_event(
+      runtime, timeout_ms, out_had_event
+    );
+  });
+}
+
 auto mln_runtime_poll_event(
   mln_runtime* runtime, mln_runtime_event* out_event, bool* out_has_event
 ) noexcept -> mln_status {

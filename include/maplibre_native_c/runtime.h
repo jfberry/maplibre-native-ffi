@@ -727,6 +727,48 @@ MLN_API mln_status mln_runtime_run_blocking(
 ) MLN_NOEXCEPT;
 
 /**
+ * Blocks until the runtime event queue has at least one event drainable
+ * via mln_runtime_poll_event(), or until timeout_ms elapses.
+ *
+ * Internally loops uv_run(UV_RUN_ONCE) and rechecks the event queue after
+ * each wakeup. Every libuv-internal callback that fires without producing a
+ * runtime event (timer cleanup, async signals from worker threads finishing
+ * background work, etc.) is consumed inside this call instead of being
+ * surfaced to the caller. Compared to mln_runtime_run_blocking, this is
+ * what callers actually want when their next step is "drain PollEvent":
+ *
+ *   for {
+ *       hadEvent := wait_for_event(rt, budget)
+ *       if !hadEvent { break }
+ *       drain poll_event ...
+ *   }
+ *
+ * vs run_blocking, where the loop wakes ~60× per render on libuv chatter
+ * that has nothing to do with the caller's PollEvent contract — each wake
+ * paying a cgo crossing.
+ *
+ * - timeout_ms == 0: degrades to a single mln_runtime_run_once() + queue
+ *   check. *out_had_event reflects only what's already queued or arrives
+ *   during the non-blocking drain.
+ * - timeout_ms > 0: blocks up to timeout_ms aggregate (one cap across all
+ *   internal wakeups, not per-wakeup).
+ *
+ * *out_had_event is true if the queue is non-empty at return, false if the
+ * deadline expired first.
+ *
+ * Returns:
+ * - MLN_STATUS_OK on success.
+ * - MLN_STATUS_INVALID_ARGUMENT when runtime is null or not a live runtime
+ *   handle, or out_had_event is null.
+ * - MLN_STATUS_WRONG_THREAD when called from a thread other than the runtime
+ *   owner thread.
+ * - MLN_STATUS_NATIVE_ERROR when an internal exception is converted to status.
+ */
+MLN_API mln_status mln_runtime_wait_for_event(
+  mln_runtime* runtime, uint64_t timeout_ms, bool* out_had_event
+) MLN_NOEXCEPT;
+
+/**
  * Pops the next queued runtime event.
  *
  * On success, *out_event is reset and *out_has_event indicates whether an event

@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -2366,6 +2367,66 @@ auto run_runtime_blocking(
     return MLN_STATUS_INVALID_ARGUMENT;
   }
   *out_had_event = runtime->run_loop->runOnce(timeout_ms);
+  return MLN_STATUS_OK;
+}
+
+auto wait_for_runtime_event(
+  mln_runtime* runtime, uint64_t timeout_ms, bool* out_had_event
+) -> mln_status {
+  const auto status = validate_runtime(runtime);
+  if (status != MLN_STATUS_OK) {
+    return status;
+  }
+  if (out_had_event == nullptr) {
+    set_thread_error("out_had_event must not be null");
+    return MLN_STATUS_INVALID_ARGUMENT;
+  }
+
+  // Fast-path: an event is already queued from a previous loop tick. Skip
+  // the runOnce dance entirely.
+  auto event_queue_non_empty = [&]() {
+    const std::scoped_lock lock(runtime->event_mutex);
+    return !runtime->events.empty();
+  };
+  if (event_queue_non_empty()) {
+    *out_had_event = true;
+    return MLN_STATUS_OK;
+  }
+
+  // timeout_ms == 0: drain libuv once, re-check the queue, return. Matches
+  // mln_runtime_run_once + immediate poll without ever entering epoll_wait.
+  if (timeout_ms == 0) {
+    runtime->run_loop->runOnce();
+    *out_had_event = event_queue_non_empty();
+    return MLN_STATUS_OK;
+  }
+
+  // Loop in C — every libuv wakeup that produces no queued runtime event is
+  // a spurious wake from the caller's perspective. Going back to Go to
+  // poll-and-retry pays a cgo crossing per spurious wake; staying in C keeps
+  // the overhead at one mutex acquire per wake. Caller-visible budget stays
+  // capped at timeout_ms regardless of how many internal wakeups happen.
+  const auto deadline =
+    std::chrono::steady_clock::now() + std::chrono::milliseconds{timeout_ms};
+  while (true) {
+    const auto now = std::chrono::steady_clock::now();
+    if (now >= deadline) {
+      break;
+    }
+    const auto remaining_ms = static_cast<uint64_t>(
+      std::chrono::duration_cast<std::chrono::milliseconds>(deadline - now)
+        .count()
+    );
+    if (remaining_ms == 0) {
+      break;
+    }
+    runtime->run_loop->runOnce(remaining_ms);
+    if (event_queue_non_empty()) {
+      *out_had_event = true;
+      return MLN_STATUS_OK;
+    }
+  }
+  *out_had_event = event_queue_non_empty();
   return MLN_STATUS_OK;
 }
 

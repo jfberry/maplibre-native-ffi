@@ -114,6 +114,59 @@ func TestRuntimeRunBlockingNilHandle(t *testing.T) {
 	}
 }
 
+func TestRuntimeWaitForEvent(t *testing.T) {
+	stdruntime.LockOSThread()
+	defer stdruntime.UnlockOSThread()
+
+	runtime, err := NewRuntime()
+	if err != nil {
+		t.Fatalf("NewRuntime(): %v", err)
+	}
+	t.Cleanup(func() { _ = runtime.Close() })
+
+	// timeout=0 degrades to RunOnce + queue check. An idle runtime with no
+	// queued events should return hadEvent=false immediately.
+	start := time.Now()
+	hadEvent, err := runtime.WaitForEvent(0)
+	if err != nil {
+		t.Fatalf("WaitForEvent(0): %v", err)
+	}
+	if hadEvent {
+		t.Fatal("WaitForEvent(0) on idle runtime reported hadEvent=true")
+	}
+	if elapsed := time.Since(start); elapsed > 5*time.Millisecond {
+		t.Fatalf("WaitForEvent(0) took %s; expected near-instant", elapsed)
+	}
+
+	// On an idle runtime with a positive budget, WaitForEvent should sit in
+	// libuv for ~budget and return hadEvent=false. Unlike RunBlocking, it
+	// must NOT return early on the timer-internal wakeups it consumes while
+	// waiting.
+	const budget = 30 * time.Millisecond
+	start = time.Now()
+	hadEvent, err = runtime.WaitForEvent(budget)
+	elapsed := time.Since(start)
+	if err != nil {
+		t.Fatalf("WaitForEvent(%s): %v", budget, err)
+	}
+	if hadEvent {
+		t.Fatalf("WaitForEvent(%s) on idle runtime reported hadEvent=true", budget)
+	}
+	if elapsed < budget/2 {
+		t.Fatalf("WaitForEvent(%s) returned after only %s; expected to block close to the budget", budget, elapsed)
+	}
+	if elapsed > budget*4 {
+		t.Fatalf("WaitForEvent(%s) returned after %s; far longer than the budget", budget, elapsed)
+	}
+}
+
+func TestRuntimeWaitForEventNilHandle(t *testing.T) {
+	var nilRuntime *RuntimeHandle
+	if _, err := nilRuntime.WaitForEvent(10 * time.Millisecond); !errors.Is(err, ErrInvalidArgument) {
+		t.Fatalf("nil RuntimeHandle.WaitForEvent() error = %v, want ErrInvalidArgument", err)
+	}
+}
+
 func TestRuntimeCreateRunOnceAndClose(t *testing.T) {
 	runtime, err := NewRuntime()
 	if err != nil {

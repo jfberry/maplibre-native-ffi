@@ -464,6 +464,55 @@ func (runtime *RuntimeHandle) RunOnce() error {
 	})
 }
 
+// WaitForEvent blocks until the runtime event queue has at least one event
+// drainable via PollEvent, or until timeout elapses. timeout <= 0 degrades
+// to a single RunOnce() followed by a queue check. Returns (hadEvent, nil)
+// on success — hadEvent is true if the queue is non-empty at return, false
+// if the deadline expired first.
+//
+// This is the right primitive for the common pump pattern:
+//
+//	for {
+//	    hadEvent, _ := rt.WaitForEvent(budget)
+//	    if !hadEvent { break }
+//	    for {
+//	        ev, _ := rt.PollEvent()
+//	        if ev == nil { break }
+//	        handle(ev)
+//	    }
+//	}
+//
+// Compared to RunBlocking, it filters spurious libuv-internal wakeups
+// inside C — each "no event in the queue" wake costs one mutex acquire
+// instead of a cgo crossing. Useful when downstream measurement shows
+// most RunBlocking returns produce no drainable event (the common case
+// for resource-pipeline-bound workloads where mbgl's worker threads are
+// chattering between batches).
+//
+// Caller must invoke from the runtime owner thread (same as RunOnce).
+func (runtime *RuntimeHandle) WaitForEvent(timeout time.Duration) (bool, error) {
+	ptr, err := runtime.ptr()
+	if err != nil {
+		return false, err
+	}
+	defer runtime.state.KeepAlive()
+	var hadEvent C.bool
+	timeoutMs := uint64(0)
+	if timeout > 0 {
+		timeoutMs = uint64((timeout + time.Millisecond - 1) / time.Millisecond)
+	}
+	if err := checkNative(func() int32 {
+		return int32(C.mln_runtime_wait_for_event(
+			(*C.mln_runtime)(unsafe.Pointer(ptr)),
+			C.uint64_t(timeoutMs),
+			&hadEvent,
+		))
+	}); err != nil {
+		return false, err
+	}
+	return bool(hadEvent), nil
+}
+
 // RunBlocking blocks in the runtime's underlying event loop until at least
 // one event is processed or timeout elapses. timeout <= 0 degrades to a
 // non-blocking RunOnce(). Returns (hadEvent, nil) on success — hadEvent is
