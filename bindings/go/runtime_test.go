@@ -4,6 +4,7 @@ import (
 	"errors"
 	stdruntime "runtime"
 	"testing"
+	"time"
 )
 
 func TestRuntimeCreateWithOptions(t *testing.T) {
@@ -62,6 +63,57 @@ func TestRuntimeAmbientCacheOperationRejectsUnknownOperation(t *testing.T) {
 		t.Fatalf("StartAmbientCacheOperation(unknown) error = %v, want ErrInvalidArgument", err)
 	}
 }
+func TestRuntimeRunBlocking(t *testing.T) {
+	// libuv loops are not safe to access concurrently — uv_run with UV_RUN_ONCE
+	// must execute on the thread that owns the loop. Pin this goroutine so the
+	// loop's NewRuntime/RunBlocking/Close all land on the same OS thread.
+	stdruntime.LockOSThread()
+	defer stdruntime.UnlockOSThread()
+
+	runtime, err := NewRuntime()
+	if err != nil {
+		t.Fatalf("NewRuntime(): %v", err)
+	}
+	t.Cleanup(func() { _ = runtime.Close() })
+
+	// timeout=0 degrades to the non-blocking RunOnce path.
+	hadEvent, err := runtime.RunBlocking(0)
+	if err != nil {
+		t.Fatalf("RunBlocking(0): %v", err)
+	}
+	if !hadEvent {
+		t.Fatal("RunBlocking(0) reported hadEvent=false; expected true to match runOnce() semantics")
+	}
+
+	// With a small positive budget on an idle runtime, the call should block
+	// until the deadline expires and report hadEvent=false. We allow the
+	// elapsed time some slack on either side: the kernel timer granularity
+	// can let us return slightly early on some hosts.
+	const budget = 25 * time.Millisecond
+	start := time.Now()
+	hadEvent, err = runtime.RunBlocking(budget)
+	elapsed := time.Since(start)
+	if err != nil {
+		t.Fatalf("RunBlocking(%s): %v", budget, err)
+	}
+	if hadEvent {
+		t.Fatalf("RunBlocking(%s) on idle runtime reported hadEvent=true", budget)
+	}
+	if elapsed < budget/2 {
+		t.Fatalf("RunBlocking(%s) returned after only %s; expected to block close to the budget", budget, elapsed)
+	}
+	if elapsed > budget*4 {
+		t.Fatalf("RunBlocking(%s) returned after %s; far longer than the budget", budget, elapsed)
+	}
+}
+
+func TestRuntimeRunBlockingNilHandle(t *testing.T) {
+	var nilRuntime *RuntimeHandle
+	if _, err := nilRuntime.RunBlocking(10 * time.Millisecond); !errors.Is(err, ErrInvalidArgument) {
+		t.Fatalf("nil RuntimeHandle.RunBlocking() error = %v, want ErrInvalidArgument", err)
+	}
+}
+
 func TestRuntimeCreateRunOnceAndClose(t *testing.T) {
 	runtime, err := NewRuntime()
 	if err != nil {

@@ -699,6 +699,34 @@ MLN_API mln_status mln_runtime_destroy(mln_runtime* runtime) MLN_NOEXCEPT;
 MLN_API mln_status mln_runtime_run_once(mln_runtime* runtime) MLN_NOEXCEPT;
 
 /**
+ * Blocks in the runtime's underlying event loop until at least one event is
+ * processed or timeout_ms elapses.
+ *
+ * - timeout_ms == 0: degrades to mln_runtime_run_once() — poll once and
+ *   return immediately. *out_had_event is set to true to match the
+ *   non-blocking-runtime semantics.
+ * - timeout_ms > 0: blocks up to timeout_ms in the loop's epoll/kqueue wait
+ *   (uv_run with UV_RUN_ONCE, bounded by an internal one-shot timer). On
+ *   wakeup, *out_had_event is true if a non-timeout callback fired, false if
+ *   the deadline expired with no other event.
+ *
+ * Callers should still drain mln_runtime_poll_event() after this call —
+ * out_had_event indicates whether the wakeup was productive but does not
+ * count the number of events made available.
+ *
+ * Returns:
+ * - MLN_STATUS_OK on success.
+ * - MLN_STATUS_INVALID_ARGUMENT when runtime is null or not a live runtime
+ *   handle, or out_had_event is null.
+ * - MLN_STATUS_WRONG_THREAD when called from a thread other than the runtime
+ *   owner thread.
+ * - MLN_STATUS_NATIVE_ERROR when an internal exception is converted to status.
+ */
+MLN_API mln_status mln_runtime_run_blocking(
+  mln_runtime* runtime, uint64_t timeout_ms, bool* out_had_event
+) MLN_NOEXCEPT;
+
+/**
  * Pops the next queued runtime event.
  *
  * On success, *out_event is reset and *out_has_event indicates whether an event

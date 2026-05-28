@@ -9,6 +9,7 @@ import "C"
 import (
 	"errors"
 	"sync"
+	"time"
 	"unsafe"
 
 	"github.com/maplibre/maplibre-native-ffi/bindings/go/internal/callback"
@@ -461,6 +462,42 @@ func (runtime *RuntimeHandle) RunOnce() error {
 	return checkNative(func() int32 {
 		return int32(C.mln_runtime_run_once((*C.mln_runtime)(unsafe.Pointer(ptr))))
 	})
+}
+
+// RunBlocking blocks in the runtime's underlying event loop until at least
+// one event is processed or timeout elapses. timeout <= 0 degrades to a
+// non-blocking RunOnce(). Returns (hadEvent, nil) on success — hadEvent is
+// true if a non-timeout callback fired, false if the deadline expired with
+// no other event. Callers must still drain PollEvent() afterwards; the
+// boolean is only a hint about whether the wakeup was productive.
+//
+// Use this in place of the time.Sleep(N)+RunOnce loop pattern: the libuv
+// loop wakes on epoll/kqueue events with sub-microsecond latency, where
+// userspace sleeps add their full duration as floor latency per iteration.
+// Caller must invoke from the runtime owner thread (same as RunOnce).
+func (runtime *RuntimeHandle) RunBlocking(timeout time.Duration) (bool, error) {
+	ptr, err := runtime.ptr()
+	if err != nil {
+		return false, err
+	}
+	defer runtime.state.KeepAlive()
+	var hadEvent C.bool
+	timeoutMs := uint64(0)
+	if timeout > 0 {
+		// Round up so a sub-millisecond budget still blocks for at least one
+		// timer tick rather than degrading silently to the non-blocking path.
+		timeoutMs = uint64((timeout + time.Millisecond - 1) / time.Millisecond)
+	}
+	if err := checkNative(func() int32 {
+		return int32(C.mln_runtime_run_blocking(
+			(*C.mln_runtime)(unsafe.Pointer(ptr)),
+			C.uint64_t(timeoutMs),
+			&hadEvent,
+		))
+	}); err != nil {
+		return false, err
+	}
+	return bool(hadEvent), nil
 }
 
 // PollEvent polls one queued runtime event and copies it into a Go value.

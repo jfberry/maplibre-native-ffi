@@ -2354,6 +2354,21 @@ auto run_runtime_once(mln_runtime* runtime) -> mln_status {
   return MLN_STATUS_OK;
 }
 
+auto run_runtime_blocking(
+  mln_runtime* runtime, uint64_t timeout_ms, bool* out_had_event
+) -> mln_status {
+  const auto status = validate_runtime(runtime);
+  if (status != MLN_STATUS_OK) {
+    return status;
+  }
+  if (out_had_event == nullptr) {
+    set_thread_error("out_had_event must not be null");
+    return MLN_STATUS_INVALID_ARGUMENT;
+  }
+  *out_had_event = runtime->run_loop->runOnce(timeout_ms);
+  return MLN_STATUS_OK;
+}
+
 auto poll_runtime_event(
   mln_runtime* runtime, mln_runtime_event* out_event, bool* out_has_event
 ) -> mln_status {
