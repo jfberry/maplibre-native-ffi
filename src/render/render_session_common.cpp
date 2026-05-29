@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -31,6 +32,7 @@
 #include "geojson/geojson.hpp"
 #include "map/map.hpp"
 #include "maplibre_native_c.h"
+#include "runtime/runtime.hpp"
 #include "style/style_value.hpp"
 
 namespace mln::core {
@@ -1035,6 +1037,133 @@ auto render_session_render_update(mln_render_session* session) -> mln_status {
     }
   }
   session->rendered_generation = session->generation;
+  return MLN_STATUS_OK;
+}
+
+namespace {
+
+struct BlockingRenderState {
+  bool done = false;
+  bool failed = false;
+  std::string message;
+};
+
+// Drives the runtime RunLoop until the still completes (state->done),
+// self-drawing each pending frame. runOnce(slice) blocks in epoll until an
+// event arrives or the slice elapses, so a cold render waits on tile IO
+// without busy-spinning. Returns MLN_STATUS_TIMEOUT on deadline, a draw error
+// status if a self-draw fails, or MLN_STATUS_OK once the render completes.
+auto pump_blocking_render(
+  mln_map* map, mln_render_session* session, mbgl::util::RunLoop& run_loop,
+  const std::shared_ptr<BlockingRenderState>& state, uint64_t timeout_ms
+) -> mln_status {
+  // Cap a single blocking wait so a no-timeout render still wakes periodically
+  // to re-check completion; events (tile loads, the completion callback) wake
+  // runOnce early regardless.
+  constexpr uint64_t kRunLoopSliceMs = 1000;
+  const bool has_timeout = timeout_ms > 0;
+  const auto deadline =
+    std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
+
+  while (!state->done) {
+    uint64_t slice_ms = kRunLoopSliceMs;
+    if (has_timeout) {
+      const auto now = std::chrono::steady_clock::now();
+      if (now >= deadline) {
+        set_thread_error("render still blocking timed out");
+        return MLN_STATUS_TIMEOUT;
+      }
+      const auto remaining =
+        std::chrono::duration_cast<std::chrono::milliseconds>(deadline - now)
+          .count();
+      slice_ms = std::min<uint64_t>(
+        kRunLoopSliceMs, static_cast<uint64_t>(remaining < 1 ? 1 : remaining)
+      );
+    }
+    run_loop.runOnce(slice_ms);
+    if (map_take_pending_self_draw(map)) {
+      const auto draw_status = render_session_render_update(session);
+      if (draw_status != MLN_STATUS_OK) {
+        return draw_status;
+      }
+    }
+  }
+  return MLN_STATUS_OK;
+}
+
+}  // namespace
+
+auto map_render_still_blocking(mln_map* map, uint64_t timeout_ms)
+  -> mln_status {
+  // Reserve the still slot (validates the map, mode, owner thread, and that no
+  // request is already pending) before touching anything else.
+  auto status = map_begin_still_request(map);
+  if (status != MLN_STATUS_OK) {
+    return status;
+  }
+
+  auto* session =
+    static_cast<mln_render_session*>(map_render_target_session(map));
+  if (session == nullptr) {
+    map_end_still_request(map);
+    set_thread_error("map has no attached render session");
+    return MLN_STATUS_INVALID_STATE;
+  }
+  status = validate_live_attached_render_session(session);
+  if (status != MLN_STATUS_OK) {
+    map_end_still_request(map);
+    return status;
+  }
+  auto* runtime = map_runtime(map);
+  if (runtime == nullptr || runtime->run_loop == nullptr) {
+    map_end_still_request(map);
+    set_thread_error("map runtime is not available");
+    return MLN_STATUS_INVALID_STATE;
+  }
+
+  auto state = std::make_shared<BlockingRenderState>();
+
+  // Switch the frontend to self-draw: update() now records a pending draw
+  // instead of pushing MAP_RENDER_UPDATE_AVAILABLE events. Always cleared on
+  // exit below.
+  map_set_self_draw(map, true);
+
+  // The completion callback captures `map` (its lifetime is bounded by the
+  // mbgl::Map that owns the callback, so it is never invoked after the map is
+  // destroyed) and `state` by shared_ptr (so a completion arriving after a
+  // timeout return writes to live heap, never a dangling stack frame). It also
+  // clears the pending flag, so a timed-out render self-heals: the map accepts
+  // a new still request once the in-flight render finally resolves.
+  map_native(map)->renderStill([map, state](std::exception_ptr error) -> void {
+    if (error) {
+      try {
+        std::rethrow_exception(error);
+      } catch (const std::exception& exception) {
+        state->message = exception.what();
+      } catch (...) {
+        state->message = "unknown render error";
+      }
+      state->failed = true;
+    }
+    state->done = true;
+    map_end_still_request(map);
+  });
+
+  const auto result =
+    pump_blocking_render(map, session, *runtime->run_loop, state, timeout_ms);
+
+  // Always leave self-draw mode. The pending still-image request is cleared by
+  // the completion callback — which has already fired on the success path, and
+  // fires later (resolving the slot) on the timeout/abort paths.
+  map_set_self_draw(map, false);
+
+  if (result != MLN_STATUS_OK) {
+    return result;
+  }
+  if (state->failed) {
+    set_thread_error(state->message.c_str());
+    return MLN_STATUS_NATIVE_ERROR;
+  }
   return MLN_STATUS_OK;
 }
 
