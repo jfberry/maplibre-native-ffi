@@ -1058,21 +1058,40 @@ auto pump_blocking_render(
   const std::shared_ptr<BlockingRenderState>& state, uint64_t timeout_ms
 ) -> mln_status {
   // Cap a single blocking wait so a no-timeout render still wakes periodically
-  // to re-check completion; events (tile loads, the completion callback) wake
-  // runOnce early regardless.
+  // to re-check completion; events (tile loads) wake runOnce early regardless.
   constexpr uint64_t kRunLoopSliceMs = 1000;
   const bool has_timeout = timeout_ms > 0;
   const auto deadline =
     std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
 
   while (!state->done) {
+    const auto now = std::chrono::steady_clock::now();
+    if (has_timeout && now >= deadline) {
+      set_thread_error("render still blocking timed out");
+      return MLN_STATUS_TIMEOUT;
+    }
+
+    // Service pending self-draws BEFORE parking. renderStill -> Map::onUpdate
+    // -> frontend.update() sets the first pending draw synchronously, with no
+    // libuv event to wake runOnce; and a render can complete the still
+    // synchronously (onDidFinishRenderingFrame fires inside
+    // renderer->render()). If we blocked in runOnce first, the loop would park
+    // a full slice with a draw already pending — a fixed per-render stall.
+    // Draining first means a warm render returns in render-time without ever
+    // blocking.
+    if (map_take_pending_self_draw(map)) {
+      const auto draw_status = render_session_render_update(session);
+      if (draw_status != MLN_STATUS_OK) {
+        return draw_status;
+      }
+      continue;
+    }
+
+    // Idle: nothing to draw and not done. Block until the next event (a tile
+    // load completing, which mbgl posts to this loop via RunLoop::push ->
+    // wake) so progressive cold renders advance without busy-spinning.
     uint64_t slice_ms = kRunLoopSliceMs;
     if (has_timeout) {
-      const auto now = std::chrono::steady_clock::now();
-      if (now >= deadline) {
-        set_thread_error("render still blocking timed out");
-        return MLN_STATUS_TIMEOUT;
-      }
       const auto remaining =
         std::chrono::duration_cast<std::chrono::milliseconds>(deadline - now)
           .count();
@@ -1081,12 +1100,6 @@ auto pump_blocking_render(
       );
     }
     run_loop.runOnce(slice_ms);
-    if (map_take_pending_self_draw(map)) {
-      const auto draw_status = render_session_render_update(session);
-      if (draw_status != MLN_STATUS_OK) {
-        return draw_status;
-      }
-    }
   }
   return MLN_STATUS_OK;
 }
