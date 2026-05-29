@@ -77,6 +77,10 @@ struct mln_runtime {
   std::vector<std::byte> last_polled_event_payload;
   std::string last_polled_event_message;
   std::unordered_map<const mln_map*, std::string> map_loading_failures;
+  // Maps with an undrained MLN_RUNTIME_EVENT_MAP_RENDER_UPDATE_AVAILABLE event
+  // already queued. Used to coalesce render-update signals (see
+  // push_runtime_map_event_payload). Guarded by event_mutex.
+  std::unordered_set<const mln_map*> maps_with_pending_render_update;
 };
 
 namespace mln::core {

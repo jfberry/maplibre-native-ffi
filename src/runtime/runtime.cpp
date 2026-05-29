@@ -2471,6 +2471,14 @@ auto poll_runtime_event(
 
   auto event = std::move(runtime->events.front());
   runtime->events.pop_front();
+  // Render-update event drained: allow the next update() for this map to queue
+  // a fresh one (see coalescing in push_runtime_map_event_payload).
+  if (
+    event.type == MLN_RUNTIME_EVENT_MAP_RENDER_UPDATE_AVAILABLE &&
+    event.map != nullptr
+  ) {
+    runtime->maps_with_pending_render_update.erase(event.map);
+  }
   runtime->last_polled_event_payload = std::move(event.payload);
   runtime->last_polled_event_message = std::move(event.message);
   patch_polled_payload_strings(runtime, event.payload_type);
@@ -2620,6 +2628,19 @@ auto push_runtime_map_event_payload(
   if (type == MLN_RUNTIME_EVENT_MAP_LOADING_FAILED && map != nullptr) {
     runtime->map_loading_failures[map] = event.message;
   }
+  // Coalesce render-update signals. mbgl's onInvalidate fires update() many
+  // times per pump cycle; each call supersedes the previous UpdateParameters
+  // (retained on the frontend), so queuing one event per call floods the
+  // queue with duplicate "render the latest" notifications. Mirror libuv's
+  // uv_async_send coalescing (which mbgl's own HeadlessFrontend gets for
+  // free): while a render-update event for this map is already queued and
+  // undrained, drop the new one. poll_runtime_event clears the flag when the
+  // event is popped, so the next update() after a drain queues a fresh event.
+  if (type == MLN_RUNTIME_EVENT_MAP_RENDER_UPDATE_AVAILABLE && map != nullptr) {
+    if (!runtime->maps_with_pending_render_update.insert(map).second) {
+      return;
+    }
+  }
   runtime->events.push_back(std::move(event));
 }
 
@@ -2678,6 +2699,7 @@ auto discard_runtime_map_events(mln_runtime* runtime, const mln_map* map)
     return event.map == map;
   });
   runtime->map_loading_failures.erase(map);
+  runtime->maps_with_pending_render_update.erase(map);
 }
 
 }  // namespace mln::core
